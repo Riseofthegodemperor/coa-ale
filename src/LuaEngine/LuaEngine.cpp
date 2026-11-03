@@ -270,6 +270,23 @@ void ALE::OpenLua()
     // Register methods and functions
     RegisterFunctions(this);
 
+    // Override print() so Lua script output goes to Logger.ALE instead of stdout.
+    // Lua's built-in print() writes to stdout which is invisible in server log files.
+    lua_pushcfunction(L, [](lua_State* ls) -> int {
+        int n = lua_gettop(ls);
+        std::string line;
+        for (int i = 1; i <= n; ++i) {
+            if (i > 1) line += '\t';
+            size_t len = 0;
+            const char* s = luaL_tolstring(ls, i, &len);
+            line.append(s, len);
+            lua_pop(ls, 1);
+        }
+        ALE_LOG_INFO("{}", line);
+        return 0;
+    });
+    lua_setglobal(L, "print");
+
     // Set lua require folder paths (scripts folder structure)
     lua_getglobal(L, "package");
     lua_pushstring(L, GetRequirePath().c_str());
