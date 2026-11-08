@@ -10,6 +10,7 @@
 #include "Chat.h"
 #include "GameTime.h"
 #include "GossipDef.h"
+#include "LootItemStorage.h"
 
 /***
  * Inherits all methods from: [Object], [WorldObject], [Unit]
@@ -5234,6 +5235,102 @@ namespace LuaPlayer
     {
         ALE::Push(L, player->GetMostPointsTalentTree());
         return 1;
+    }
+
+    int AutoBankItem(lua_State* L, Player* player)
+    {
+        Item* item = ALE::CHECKOBJ<Item>(L, 2);
+        uint8 srcBag = item->GetBagSlot();
+        uint8 srcSlot = item->GetSlot();
+        ItemPosCountVec dest;
+        if (player->CanBankItem(NULL_BAG, NULL_SLOT, dest, item, false) != EQUIP_ERR_OK)
+        {
+            ALE::Push(L, false);
+            return 1;
+        }
+        player->RemoveItem(srcBag, srcSlot, true);
+        player->BankItem(dest, item, true);
+        ALE::Push(L, true);
+        return 1;
+    }
+
+    int MailItemToCharacter(lua_State* L, Player* player)
+    {
+        Item* item = ALE::CHECKOBJ<Item>(L, 2);
+        uint32 recipientGuidLow = ALE::CHECKVAL<uint32>(L, 3);
+        std::string subject = ALE::CHECKVAL<std::string>(L, 4);
+
+        uint8 bag = item->GetBagSlot();
+        uint8 slot = item->GetSlot();
+
+        CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+        player->MoveItemFromInventory(bag, slot, true);
+        item->DeleteFromInventoryDB(trans);
+        item->SaveToDB(trans);
+
+        MailDraft(subject, "")
+            .AddItem(item)
+            .SendMailTo(trans, MailReceiver(recipientGuidLow), MailSender(player), MAIL_CHECK_MASK_NONE);
+
+        CharacterDatabase.CommitTransaction(trans);
+        return 0;
+    }
+
+    int AutoLootContainer(lua_State* L, Player* player)
+    {
+        Item* item = ALE::CHECKOBJ<Item>(L, 2);
+        ItemTemplate const* proto = item->GetTemplate();
+        if (!proto->HasFlag(ITEM_FLAG_HAS_LOOT) || item->IsLocked())
+        {
+            ALE::Push(L, (uint32)0);
+            ALE::Push(L, (uint32)0);
+            return 2;
+        }
+        Loot* loot = &item->loot;
+        if (!item->m_lootGenerated && !sLootItemStorage->LoadStoredLoot(item, player))
+        {
+            item->m_lootGenerated = true;
+            loot->clear();
+            loot->containerGUID = item->GetGUID();
+            loot->generateMoneyLoot(proto->MinMoneyLoot, proto->MaxMoneyLoot);
+            loot->FillLoot(item->GetEntry(), LootTemplates_Item, player, true, loot->gold != 0);
+            if (loot->gold > 0 || loot->unlootedCount > 0)
+                sLootItemStorage->AddNewStoredLoot(loot, player);
+        }
+        uint32 stored = 0, failed = 0;
+        uint32 maxSlot = loot->GetMaxSlotInLootFor(player);
+        for (uint32 i = 0; i < maxSlot; ++i)
+        {
+            LootItem* li = loot->LootItemInSlot(i, player);
+            if (!li || li->is_looted) continue;
+            ItemPosCountVec dest;
+            if (player->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, li->itemid, li->count) != EQUIP_ERR_OK)
+            {
+                ++failed;
+                continue;
+            }
+            Item* newItem = player->StoreNewItem(dest, li->itemid, true, li->randomPropertyId);
+            if (newItem)
+            {
+                player->SendNewItem(newItem, li->count, false, false, false);
+                li->is_looted = true;
+                ++stored;
+            }
+        }
+        if (loot->gold > 0)
+        {
+            player->ModifyMoney(loot->gold);
+            loot->gold = 0;
+            sLootItemStorage->RemoveStoredLootMoney(item->GetGUID(), loot);
+        }
+        if (failed == 0)
+        {
+            sLootItemStorage->RemoveStoredLoot(item->GetGUID());
+            player->DestroyItem(item->GetBagSlot(), item->GetSlot(), true);
+        }
+        ALE::Push(L, stored);
+        ALE::Push(L, failed);
+        return 2;
     }
 };
 #endif

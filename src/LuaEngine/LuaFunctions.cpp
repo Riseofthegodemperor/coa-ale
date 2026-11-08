@@ -581,6 +581,9 @@ ALERegister<Player> PlayerMethods[] =
     { "GetQuestSlotQuestId", &LuaPlayer::GetQuestSlotQuestId },
     { "GetTalentTreePoints", &LuaPlayer::GetTalentTreePoints },
     { "GetMostPointsTalentTree", &LuaPlayer::GetMostPointsTalentTree },
+    { "AutoBankItem", &LuaPlayer::AutoBankItem },
+    { "AutoLootContainer", &LuaPlayer::AutoLootContainer },
+    { "MailItemToCharacter", &LuaPlayer::MailItemToCharacter },
 
     // Setters
     { "SetTemporaryUnsummonedPetNumber", &LuaPlayer::SetTemporaryUnsummonedPetNumber },
