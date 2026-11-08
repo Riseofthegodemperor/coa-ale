@@ -42,6 +42,9 @@ ALEEventProcessor::~ALEEventProcessor()
 void ALEEventProcessor::Update(uint32 diff)
 {
     m_time += diff;
+    if (eventList.empty() || eventList.begin()->first > m_time)
+        return;
+    LOCK_ALE;
     for (EventList::iterator it = eventList.begin(); it != eventList.end() && it->first <= m_time; it = eventList.begin())
     {
         LuaEvent* luaEvent = it->second;
